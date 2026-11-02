@@ -1,0 +1,35 @@
+{
+  "id": "/",
+  "name": "نور وذكر",
+  "short_name": "نور وذكر",
+  "description": "تطبيق إسلامي شامل: الأذان التلقائي للصلوات الخمس، الأذكار الصوتية كل 5 دقائق، القرآن الكريم كاملاً، والأحاديث النبوية بدون إنترنت.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#022c22",
+  "theme_color": "#064e3b",
+  "lang": "ar",
+  "dir": "rtl",
+  "categories": ["lifestyle", "books", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

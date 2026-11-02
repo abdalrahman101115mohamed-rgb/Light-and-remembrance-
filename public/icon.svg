@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#064e3b" />
+      <stop offset="60%" stop-color="#022c22" />
+      <stop offset="100%" stop-color="#01140f" />
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="40%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background with Safe Margin (Maskable friendly) -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+
+  <!-- Decorative Islamic Geometric Circle -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-dasharray="6,8" opacity="0.3"/>
+
+  <!-- Subtle ambient glow -->
+  <circle cx="270" cy="240" r="140" fill="url(#glow)" opacity="0.25"/>
+
+  <!-- Golden Crescent Moon -->
+  <path d="M290 100 C 180 100, 100 185, 100 290 C 100 395, 185 480, 290 480 C 240 460, 205 405, 205 340 C 205 250, 270 180, 360 180 C 335 130, 315 100, 290 100 Z" fill="url(#goldGrad)" />
+
+  <!-- Ramadan Lantern hanging from crescent -->
+  <g transform="translate(325, 160)">
+    <!-- Hanging line -->
+    <line x1="0" y1="0" x2="0" y2="40" stroke="url(#goldGrad)" stroke-width="3"/>
+    
+    <!-- Lantern Ring -->
+    <circle cx="0" cy="45" r="7" fill="none" stroke="url(#goldGrad)" stroke-width="2.5"/>
+    
+    <!-- Lantern Cap -->
+    <polygon points="-16,60 16,60 8,50 -8,50" fill="url(#goldGrad)"/>
+    
+    <!-- Lantern Body Glass -->
+    <polygon points="-22,105 22,105 16,60 -16,60" fill="#fef08a" fill-opacity="0.9" stroke="url(#goldGrad)" stroke-width="2.5"/>
+    <circle cx="0" cy="82" r="10" fill="#f59e0b" opacity="0.85"/>
+    
+    <!-- Lantern Base -->
+    <polygon points="-14,105 14,105 18,118 -18,118" fill="url(#goldGrad)"/>
+    <polygon points="-8,118 8,118 12,126 -12,126" fill="url(#goldGrad)"/>
+  </g>
+
+  <!-- Islamic 8-Point Star in sky -->
+  <g transform="translate(190, 170) scale(0.65)" fill="url(#goldGrad)">
+    <polygon points="0,-30 8,-8 30,0 8,8 0,30 -8,8 -30,0 -8,-8"/>
+    <polygon points="0,-30 8,-8 30,0 8,8 0,30 -8,8 -30,0 -8,-8" transform="rotate(45)"/>
+  </g>
+
+  <g transform="translate(135, 230) scale(0.35)" fill="url(#goldGrad)">
+    <polygon points="0,-30 8,-8 30,0 8,8 0,30 -8,8 -30,0 -8,-8"/>
+    <polygon points="0,-30 8,-8 30,0 8,8 0,30 -8,8 -30,0 -8,-8" transform="rotate(45)"/>
+  </g>
+
+  <!-- Arabic Calligraphy "رمضان كريم" minimal typographic curve -->
+  <text x="256" y="445" font-family="'Amiri', 'Traditional Arabic', serif" font-size="44" font-weight="bold" fill="url(#goldGrad)" text-anchor="middle" letter-spacing="2">رمضان كريم</text>
+</svg>

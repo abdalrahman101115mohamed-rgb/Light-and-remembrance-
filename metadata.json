@@ -1,0 +1,10 @@
+{
+  "name": "نور وذكر",
+  "description": "نور وذكر - تطبيق إسلامي شامل: الأذان التلقائي للصلوات الخمس، أذكار صوتية دورية كل 5 دقائق، القرآن الكريم كاملاً، الأحاديث النبوية، والمسبحة ومواقيت الصلاة الدقيقة.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
