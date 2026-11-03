@@ -14,7 +14,13 @@ import {
   Sparkles,
   ArrowRight,
   Headphones,
-  CheckCircle2
+  CheckCircle2,
+  Download,
+  Check,
+  Trash2,
+  Gauge,
+  Radio,
+  Layers
 } from 'lucide-react';
 import {
   SURAHS_LIST,
@@ -26,20 +32,32 @@ import {
   getSurahAyahs,
   getAyahAudioUrl
 } from '../data/quranData';
+import { quranDownloadManager, QuranDownloadProgress } from '../utils/quranDownloadManager';
 
 export const QuranView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'surahs' | 'juz' | 'bookmarks'>('surahs');
+  const [activeTab, setActiveTab] = useState<'surahs' | 'juz' | 'bookmarks' | 'downloads'>('surahs');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSurah, setSelectedSurah] = useState<SurahMeta | null>(null);
   const [ayahs, setAyahs] = useState<Ayah[]>([]);
   const [loadingAyahs, setLoadingAyahs] = useState(false);
   const [fontSize, setFontSize] = useState<number>(24);
 
-  // Audio recitation states
-  const [selectedReciter, setSelectedReciter] = useState<Reciter>(RECITERS[0]);
+  // Audio recitation states (Ayah by Ayah)
+  const [selectedReciter, setSelectedReciter] = useState<Reciter>(RECITERS[0]); // Mishary Alafasy
   const [playingAyahNumber, setPlayingAyahNumber] = useState<number | null>(null);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isAyahPlaying, setIsAyahPlaying] = useState<boolean>(false);
+  const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Full Surah Audio Player (Sheikh Mishary Rashid Alafasy)
+  const [isFullSurahPlaying, setIsFullSurahPlaying] = useState<boolean>(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [currentSurahTime, setCurrentSurahTime] = useState<number>(0);
+  const [surahDuration, setSurahDuration] = useState<number>(0);
+  const fullSurahAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Download manager state
+  const [downloadProgress, setDownloadProgress] = useState<QuranDownloadProgress>(quranDownloadManager.getProgress());
+  const [downloadedSet, setDownloadedSet] = useState<Set<number>>(new Set());
 
   // Bookmarks state: { surahNumber, surahName, ayahNumber, text, timestamp }
   interface BookmarkItem {
@@ -52,7 +70,7 @@ export const QuranView: React.FC = () => {
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [lastRead, setLastRead] = useState<{ surahNumber: number; surahName: string; ayahNumber: number } | null>(null);
 
-  // Load bookmarks & last read from localStorage
+  // Load bookmarks & downloads
   useEffect(() => {
     try {
       const savedBm = localStorage.getItem('quran_bookmarks');
@@ -66,23 +84,48 @@ export const QuranView: React.FC = () => {
     } catch (e) {
       console.warn('Storage read error:', e);
     }
+
+    const unsubDownload = quranDownloadManager.subscribe(p => {
+      setDownloadProgress(p);
+    });
+
+    quranDownloadManager.refreshDownloadedList().then(set => {
+      setDownloadedSet(new Set(set));
+    });
+
+    return () => {
+      unsubDownload();
+      if (fullSurahAudioRef.current) {
+        fullSurahAudioRef.current.pause();
+      }
+      if (ayahAudioRef.current) {
+        ayahAudioRef.current.pause();
+      }
+    };
   }, []);
+
+  // Update downloaded set whenever progress updates
+  useEffect(() => {
+    quranDownloadManager.refreshDownloadedList().then(set => {
+      setDownloadedSet(new Set(set));
+    });
+  }, [downloadProgress.downloadedCount]);
 
   // When a surah is selected, load its ayahs
   const openSurah = async (surah: SurahMeta, targetAyah?: number) => {
     setSelectedSurah(surah);
     setLoadingAyahs(true);
     setPlayingAyahNumber(null);
-    setIsPlaying(false);
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
+    setIsAyahPlaying(false);
+    setIsFullSurahPlaying(false);
+
+    if (ayahAudioRef.current) ayahAudioRef.current.pause();
+    if (fullSurahAudioRef.current) fullSurahAudioRef.current.pause();
 
     try {
       const data = await getSurahAyahs(surah.number);
       setAyahs(data);
 
-      // Save last read
       const lastObj = {
         surahNumber: surah.number,
         surahName: surah.name,
@@ -91,7 +134,6 @@ export const QuranView: React.FC = () => {
       setLastRead(lastObj);
       localStorage.setItem('quran_last_read', JSON.stringify(lastObj));
 
-      // Scroll to top
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error('Error loading surah:', err);
@@ -132,40 +174,126 @@ export const QuranView: React.FC = () => {
     return bookmarks.some(b => b.surahNumber === selectedSurah.number && b.ayahNumber === ayahNumberInSurah);
   };
 
-  // Audio Playback
+  // Full Surah Audio Player for Sheikh Mishary Alafasy
+  const togglePlayFullSurah = async () => {
+    if (!selectedSurah) return;
+
+    if (isFullSurahPlaying) {
+      fullSurahAudioRef.current?.pause();
+      setIsFullSurahPlaying(false);
+      return;
+    }
+
+    // Stop ayah player if active
+    if (isAyahPlaying) {
+      ayahAudioRef.current?.pause();
+      setIsAyahPlaying(false);
+      setPlayingAyahNumber(null);
+    }
+
+    try {
+      const url = await quranDownloadManager.getPlayableAudioUrl(selectedSurah.number);
+
+      if (!fullSurahAudioRef.current) {
+        fullSurahAudioRef.current = new Audio();
+      }
+
+      const audio = fullSurahAudioRef.current;
+      audio.src = url;
+      audio.playbackRate = playbackSpeed;
+
+      audio.ontimeupdate = () => {
+        setCurrentSurahTime(audio.currentTime);
+        setSurahDuration(audio.duration || 0);
+      };
+
+      audio.onended = () => {
+        setIsFullSurahPlaying(false);
+        // Autoplay next surah if available
+        if (selectedSurah.number < 114) {
+          const nextMeta = SURAHS_LIST.find(s => s.number === selectedSurah.number + 1);
+          if (nextMeta) {
+            openSurah(nextMeta).then(() => {
+              togglePlayFullSurah();
+            });
+          }
+        }
+      };
+
+      await audio.play();
+      setIsFullSurahPlaying(true);
+    } catch (e) {
+      console.warn('Playback error:', e);
+      setIsFullSurahPlaying(false);
+    }
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (fullSurahAudioRef.current) {
+      fullSurahAudioRef.current.playbackRate = speed;
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    if (fullSurahAudioRef.current) {
+      fullSurahAudioRef.current.currentTime = val;
+      setCurrentSurahTime(val);
+    }
+  };
+
+  const formatSeconds = (sec: number) => {
+    if (!sec || isNaN(sec)) return '00:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Individual Ayah Audio Playback
   const playAyahAudio = (ayahNumberInSurah: number) => {
     if (!selectedSurah) return;
 
-    if (playingAyahNumber === ayahNumberInSurah && isPlaying) {
-      audioRef.current?.pause();
-      setIsPlaying(false);
+    if (isFullSurahPlaying) {
+      fullSurahAudioRef.current?.pause();
+      setIsFullSurahPlaying(false);
+    }
+
+    if (playingAyahNumber === ayahNumberInSurah && isAyahPlaying) {
+      ayahAudioRef.current?.pause();
+      setIsAyahPlaying(false);
       return;
     }
 
     const audioUrl = getAyahAudioUrl(selectedReciter, selectedSurah.number, ayahNumberInSurah);
 
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
+    if (!ayahAudioRef.current) {
+      ayahAudioRef.current = new Audio();
     }
 
-    audioRef.current.src = audioUrl;
-    audioRef.current.play().then(() => {
+    ayahAudioRef.current.src = audioUrl;
+    ayahAudioRef.current.play().then(() => {
       setPlayingAyahNumber(ayahNumberInSurah);
-      setIsPlaying(true);
+      setIsAyahPlaying(true);
     }).catch(err => {
-      console.warn('Playback error:', err);
-      setIsPlaying(false);
+      console.warn('Ayah playback error:', err);
+      setIsAyahPlaying(false);
     });
 
-    // Handle end of audio -> autoplay next ayah if available
-    audioRef.current.onended = () => {
+    ayahAudioRef.current.onended = () => {
       if (selectedSurah && ayahNumberInSurah < selectedSurah.numberOfAyahs) {
         playAyahAudio(ayahNumberInSurah + 1);
       } else {
-        setIsPlaying(false);
+        setIsAyahPlaying(false);
         setPlayingAyahNumber(null);
       }
     };
+  };
+
+  const handleDownloadSingleSurah = async (surahNum: number) => {
+    await quranDownloadManager.downloadSurah(surahNum);
+    const set = await quranDownloadManager.refreshDownloadedList();
+    setDownloadedSet(new Set(set));
   };
 
   // Filter surahs
@@ -184,8 +312,10 @@ export const QuranView: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-3 bg-emerald-900/60 border border-emerald-800/60 rounded-3xl p-3.5 shadow-xl backdrop-blur-md">
             <button
               onClick={() => {
-                if (audioRef.current) audioRef.current.pause();
-                setIsPlaying(false);
+                if (fullSurahAudioRef.current) fullSurahAudioRef.current.pause();
+                if (ayahAudioRef.current) ayahAudioRef.current.pause();
+                setIsFullSurahPlaying(false);
+                setIsAyahPlaying(false);
                 setSelectedSurah(null);
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-emerald-800/80 hover:bg-emerald-700/80 text-amber-200 text-xs sm:text-sm font-semibold transition"
@@ -231,18 +361,102 @@ export const QuranView: React.FC = () => {
             </div>
           </div>
 
-          {/* Reciter Selector Bar */}
+          {/* Full Surah Mishary Alafasy Audio Player Widget with Speed Controls */}
+          <div className="p-4 rounded-3xl bg-gradient-to-r from-emerald-950 via-teal-950 to-emerald-900 border-2 border-amber-500/40 shadow-xl space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={togglePlayFullSurah}
+                  className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-400 hover:from-amber-400 text-emerald-950 flex items-center justify-center shadow-lg transition transform active:scale-95 shrink-0"
+                  title={isFullSurahPlaying ? 'إيقاف مؤقت' : 'تشغيل السورة كاملة'}
+                >
+                  {isFullSurahPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
+                </button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm sm:text-base text-amber-200 font-quran">
+                      تلاوة سورة {selectedSurah.name} كاملة
+                    </h3>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold">
+                      الشيخ مشاري العفاسي
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-300/80">
+                    {downloadedSet.has(selectedSurah.number)
+                      ? 'مخزنة في ذاكرة الهاتف (تعمل 100% بدون إنترنت) ⚡️'
+                      : 'يمكنك تنزيلها مرة واحدة لتشغيلها بدون نت'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Speed & Download Action */}
+              <div className="flex items-center gap-2">
+                {/* Playback speed selector */}
+                <div className="flex items-center gap-1 bg-emerald-900/60 p-1 rounded-xl border border-emerald-800/60 text-xs">
+                  <Gauge className="w-3.5 h-3.5 text-amber-400 ml-1" />
+                  {[0.75, 1.0, 1.25, 1.5].map(speed => (
+                    <button
+                      key={speed}
+                      onClick={() => handleSpeedChange(speed)}
+                      className={`px-2 py-1 rounded-lg font-mono font-bold text-[11px] transition ${
+                        playbackSpeed === speed
+                          ? 'bg-amber-500 text-emerald-950'
+                          : 'text-emerald-200 hover:text-white'
+                      }`}
+                    >
+                      {speed}x
+                    </button>
+                  ))}
+                </div>
+
+                {/* Download status button */}
+                {downloadedSet.has(selectedSurah.number) ? (
+                  <span className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>مُحمّلة أوفلاين</span>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => handleDownloadSingleSurah(selectedSurah.number)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition"
+                    title="تنزيل السورة للاستماع بدون إنترنت"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>تنزيل أوفلاين</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Seek bar */}
+            <div className="space-y-1">
+              <input
+                type="range"
+                min="0"
+                max={surahDuration || 100}
+                value={currentSurahTime}
+                onChange={handleSeek}
+                className="w-full accent-amber-500 cursor-pointer h-2 bg-emerald-900 rounded-lg"
+              />
+              <div className="flex items-center justify-between text-[11px] font-mono text-emerald-300/80">
+                <span>{formatSeconds(currentSurahTime)}</span>
+                <span>{formatSeconds(surahDuration)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Reciter Selector Bar (For Ayah-by-Ayah listening) */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-emerald-950/50 border border-emerald-800/40 rounded-2xl p-3">
             <div className="flex items-center gap-2">
               <Headphones className="w-4 h-4 text-amber-400 shrink-0" />
-              <span className="text-xs text-emerald-200 font-medium">القارئ الصوتي:</span>
+              <span className="text-xs text-emerald-200 font-medium">الاستماع آية بآية:</span>
               <select
                 value={selectedReciter.id}
                 onChange={e => {
                   const r = RECITERS.find(rec => rec.id === e.target.value) || RECITERS[0];
                   setSelectedReciter(r);
-                  if (audioRef.current) audioRef.current.pause();
-                  setIsPlaying(false);
+                  if (ayahAudioRef.current) ayahAudioRef.current.pause();
+                  setIsAyahPlaying(false);
                   setPlayingAyahNumber(null);
                 }}
                 className="bg-emerald-900/80 border border-emerald-700/60 rounded-xl px-2.5 py-1 text-xs text-amber-200 focus:outline-none"
@@ -257,7 +471,7 @@ export const QuranView: React.FC = () => {
 
             <div className="text-[11px] text-amber-300/80 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>اضغط على أيقونة الصوت بجانب أي آية للاستماع إليها</span>
+              <span>اضغط على أيقونة الصوت بجانب أي آية للاستماع المباشر</span>
             </div>
           </div>
 
@@ -297,7 +511,7 @@ export const QuranView: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {ayahs.map(ayah => {
-                  const isCurrentPlaying = playingAyahNumber === ayah.numberInSurah && isPlaying;
+                  const isCurrentPlaying = playingAyahNumber === ayah.numberInSurah && isAyahPlaying;
                   const isBookmarked = isAyahBookmarked(ayah.numberInSurah);
 
                   return (
@@ -316,7 +530,7 @@ export const QuranView: React.FC = () => {
                           style={{ fontSize: `${fontSize}px` }}
                         >
                           {ayah.text}
-                          {/* Beautiful Ayah Number Badge */}
+                          {/* Ayah Number Badge */}
                           <span className="inline-flex items-center justify-center w-7 h-7 mx-2 rounded-full border border-amber-500/60 bg-amber-500/10 text-amber-300 text-xs font-mono font-bold align-middle">
                             {ayah.numberInSurah.toLocaleString('ar-EG')}
                           </span>
@@ -380,17 +594,73 @@ export const QuranView: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* Surah Index / Juz / Bookmarks View */
+        /* Surah Index / Juz / Bookmarks / Downloads Center View */
         <div className="space-y-5">
-          {/* Quran Offline Assurance Banner */}
-          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-900/40 border border-emerald-700/50 text-xs">
-            <div className="flex items-center gap-2 text-emerald-200">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="font-medium">المصحف الشريف يعمل بدون إنترنت (100% Offline) - يمكنك القراءة والتدبر في أي وقت</span>
+          {/* Complete Quran Offline Download Banner */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-950 via-teal-950 to-emerald-900 border-2 border-amber-500/40 p-5 shadow-2xl backdrop-blur-md space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center shadow-inner border border-amber-500/30 shrink-0">
+                  <Download className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm sm:text-base text-amber-300 font-quran">
+                      تنزيل القرآن الكريم كاملاً بصوت الشيخ مشاري العفاسي
+                    </h3>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 font-bold">
+                      {downloadedSet.size} / 114 سورة
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-200/80 mt-0.5">
+                    حمّل المصحف كاملاً مرة واحدة واستمع بدون إنترنت في أي وقت ومكان
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                {downloadProgress.isDownloading ? (
+                  <button
+                    onClick={() => quranDownloadManager.cancelDownload()}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition"
+                  >
+                    إيقاف التنزيل
+                  </button>
+                ) : downloadedSet.size === 114 ? (
+                  <span className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-md">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>تم تنزيل المصحف كاملاً (100% أوفلاين)</span>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => quranDownloadManager.downloadFullQuran()}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-emerald-950 font-bold text-xs sm:text-sm shadow-xl transition"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{downloadedSet.size > 0 ? 'متابعة تنزيل باقي السور' : 'تنزيل المصحف كاملاً'}</span>
+                  </button>
+                )}
+              </div>
             </div>
-            <span className="text-[11px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold shrink-0">
-              متاح أوفلاين
-            </span>
+
+            {/* Live Progress Bar if downloading */}
+            {downloadProgress.isDownloading && (
+              <div className="space-y-1.5 pt-2 border-t border-emerald-800/60">
+                <div className="flex items-center justify-between text-xs text-amber-300">
+                  <span>
+                    جاري تنزيل سورة {downloadProgress.currentSurahName || ''} ({downloadProgress.currentSurahNumber || 0} من 114)...
+                  </span>
+                  <span className="font-mono font-bold">{downloadProgress.percent}%</span>
+                </div>
+                <div className="w-full h-2.5 rounded-full bg-emerald-950 border border-emerald-800 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-300"
+                    style={{ width: `${downloadProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Last Read Quick Jump Banner */}
@@ -434,7 +704,7 @@ export const QuranView: React.FC = () => {
             <div className="flex items-center gap-1 bg-emerald-950/60 p-1 rounded-2xl border border-emerald-800/50">
               <button
                 onClick={() => setActiveTab('surahs')}
-                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
+                className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
                   activeTab === 'surahs'
                     ? 'bg-amber-500 text-emerald-950 shadow-md'
                     : 'text-emerald-200/80 hover:text-white'
@@ -444,7 +714,7 @@ export const QuranView: React.FC = () => {
               </button>
               <button
                 onClick={() => setActiveTab('juz')}
-                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
+                className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
                   activeTab === 'juz'
                     ? 'bg-amber-500 text-emerald-950 shadow-md'
                     : 'text-emerald-200/80 hover:text-white'
@@ -454,7 +724,7 @@ export const QuranView: React.FC = () => {
               </button>
               <button
                 onClick={() => setActiveTab('bookmarks')}
-                className={`flex items-center gap-1 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
+                className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
                   activeTab === 'bookmarks'
                     ? 'bg-amber-500 text-emerald-950 shadow-md'
                     : 'text-emerald-200/80 hover:text-white'
@@ -469,38 +739,61 @@ export const QuranView: React.FC = () => {
           {/* Surahs Grid */}
           {activeTab === 'surahs' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {filteredSurahs.map(surah => (
-                <button
-                  key={surah.number}
-                  onClick={() => openSurah(surah)}
-                  className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-900/30 hover:bg-emerald-900/60 border border-emerald-800/50 hover:border-amber-500/40 text-right transition group shadow-md"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-700/50 text-amber-300 font-mono text-sm font-bold flex items-center justify-center group-hover:border-amber-400 group-hover:scale-105 transition">
-                      {surah.number}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-sm text-white font-quran group-hover:text-amber-200 transition">
-                        سورة {surah.name}
-                      </h4>
-                      <p className="text-[11px] text-emerald-300/60 font-sans">
-                        {surah.englishName} • {surah.numberOfAyahs} آية
-                      </p>
-                    </div>
-                  </div>
+              {filteredSurahs.map(surah => {
+                const isDownloaded = downloadedSet.has(surah.number);
 
-                  <div className="text-left">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      surah.revelationType === 'مكية'
-                        ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                        : 'bg-teal-500/10 text-teal-300 border-teal-500/30'
-                    }`}>
-                      {surah.revelationType}
-                    </span>
-                    <span className="block text-[10px] text-emerald-400/50 mt-1">جزء {surah.juz}</span>
+                return (
+                  <div
+                    key={surah.number}
+                    className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-900/30 hover:bg-emerald-900/60 border border-emerald-800/50 hover:border-amber-500/40 text-right transition group shadow-md"
+                  >
+                    <button
+                      onClick={() => openSurah(surah)}
+                      className="flex-1 flex items-center gap-3 text-right"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-700/50 text-amber-300 font-mono text-sm font-bold flex items-center justify-center group-hover:border-amber-400 group-hover:scale-105 transition">
+                        {surah.number}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white font-quran group-hover:text-amber-200 transition">
+                          سورة {surah.name}
+                        </h4>
+                        <p className="text-[11px] text-emerald-300/60 font-sans">
+                          {surah.englishName} • {surah.numberOfAyahs} آية
+                        </p>
+                      </div>
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      {/* Download status / download trigger */}
+                      {isDownloaded ? (
+                        <span
+                          className="p-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          title="تم تحميل السورة وتعمل بدون إنترنت"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleDownloadSingleSurah(surah.number)}
+                          className="p-1.5 rounded-xl bg-emerald-950/60 hover:bg-amber-500 hover:text-emerald-950 text-emerald-300/80 border border-emerald-800 transition"
+                          title="تنزيل سورة كاملة بصوت مشاري العفاسي للاستماع بدون نت"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        surah.revelationType === 'مكية'
+                          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                          : 'bg-teal-500/10 text-teal-300 border-teal-500/30'
+                      }`}>
+                        {surah.revelationType}
+                      </span>
+                    </div>
                   </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           )}
 

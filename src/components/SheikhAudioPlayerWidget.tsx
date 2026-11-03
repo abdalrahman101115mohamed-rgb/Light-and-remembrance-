@@ -91,7 +91,7 @@ export const SheikhAudioPlayerWidget: React.FC = () => {
               <div className="truncate">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded font-bold">
-                    صوت الشيخ
+                    {settings.preferEgyptianVoice ? 'صوت راجل مصري 🇪🇬' : 'صوت الشيخ'}
                   </span>
                   <span className="text-[11px] text-emerald-300 truncate font-semibold">
                     {state.sourceType === 'story' ? 'قراءة القصة' : 'قراءة الحديث'}
@@ -169,11 +169,29 @@ export const SheikhAudioPlayerWidget: React.FC = () => {
           {showSettings && (
             <div className="pt-2 border-t border-emerald-800/60 space-y-2 text-xs">
               <div className="flex items-center justify-between">
+                <span className="text-[11px] text-amber-200">الصوت المعتمد:</span>
+                <button
+                  onClick={() => {
+                    const next = !settings.preferEgyptianVoice;
+                    setSettings({ ...settings, preferEgyptianVoice: next });
+                    sheikhVoiceService.saveSettings({ preferEgyptianVoice: next });
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition ${
+                    settings.preferEgyptianVoice
+                      ? 'bg-amber-500 text-emerald-950 border-amber-400'
+                      : 'bg-emerald-900/60 text-emerald-200 border-emerald-800'
+                  }`}
+                >
+                  {settings.preferEgyptianVoice ? 'صوت راجل مصري 🇪🇬' : 'صوت شيخ خاشع'}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
                 <span className="text-[11px] text-amber-200">سرعة ترتيل الشيخ:</span>
                 <div className="flex gap-1">
                   {[
-                    { label: 'خاشع هادئ (0.75x)', val: 0.75 },
-                    { label: 'معتدل (0.82x)', val: 0.82 },
+                    { label: 'خاشع (0.75x)', val: 0.75 },
+                    { label: 'معتدل (0.84x)', val: 0.84 },
                     { label: 'عادي (0.95x)', val: 0.95 },
                   ].map(speed => (
                     <button

@@ -1,24 +1,32 @@
-// 5-Minute Combined Azkar & Salawat Engine (نور وذكر)
-// 100% Offline, plays every 5 minutes:
-// «سُبْحَانَ اللَّهِ، وَالْحَمْدُ لِلَّهِ، وَلَا إِلَهَ إِلَّا اللَّهُ، وَاللَّهُ أَكْبَرُ، وَصَلَّى اللَّهُ عَلَى مُحَمَّدٍ»
-// In Sheikh Mishary acoustic tone & high-fidelity voice, with full coordination with Adhan & Iqama.
+// 3-Minute Salawat & Periodic Azkar Engine (نور وذكر)
+// 100% Offline, default every 3 minutes with «صلِّ على النبي صلى الله عليه وسلم»
+// Voice styles: Egyptian Male Voice (صوت راجل مصري واضح), Sheikh Abdul Basit, Sheikh Mishary, Sheikh Reader.
+// Full coordination with Adhan & Iqama, Lock Screen local notifications, and Background Audio Keep-Alive.
 
 import { adhanService } from './adhanService';
 import { sheikhVoiceService } from './sheikhVoiceService';
+import { HADITHS_DATA } from '../data/hadithsData';
+
+export type ReminderContentType = 'salawat_only' | 'combined' | 'hadith_periodic';
+export type VoiceStyleType = 'egyptian_male' | 'abdulbasit' | 'mishary' | 'sheikh_reader';
 
 export interface AzkarReminderConfig {
   enabled: boolean;
-  intervalMinutes: number; // default 5 minutes
+  intervalMinutes: number; // default 3 minutes (user requested)
+  reminderContent: ReminderContentType; // 'salawat_only' (default), 'combined', 'hadith_periodic'
   volume: number; // 0.0 to 1.0
   playChime: boolean;
-  voiceStyle: 'abdulbasit' | 'mishary' | 'sheikh_reader'; // 'abdulbasit': Sheikh Abdul Basit, 'mishary': Alafasy, 'sheikh_reader': reverent voice
+  voiceStyle: VoiceStyleType; // 'egyptian_male' default
   allowSystemNotification: boolean;
-  // Sleep / Quiet Hours (أوقات النوم والسكون)
+  lockScreenKeepAlive: boolean; // Keep audio session awake so reminders continue when screen is locked
   quietHoursEnabled: boolean;
-  quietStart: string; // e.g. "23:00" (11:00 PM)
-  quietEnd: string; // e.g. "05:00" (5:00 AM)
+  quietStart: string; // e.g. "23:00"
+  quietEnd: string; // e.g. "05:00"
   pauseDuringCallsOrMedia: boolean;
 }
+
+export const SALAWAT_TEXT = 'صَلِّ عَلَى النَّبِيِّ ﷺ — اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ';
+export const SALAWAT_SPOKEN = 'صلِّ على النبي صلى الله عليه وسلم';
 
 export const COMBINED_ZHIKR_TEXT =
   'سُبْحَانَ اللَّهِ ، وَالْحَمْدُ لِلَّهِ ، وَلَا إِلَهَ إِلَّا اللَّهُ ، وَاللَّهُ أَكْبَرُ ، وَصَلَّى اللَّهُ عَلَى نَبِيِّنَا مُحَمَّدٍ ﷺ';
@@ -26,15 +34,17 @@ export const COMBINED_ZHIKR_TEXT =
 export const COMBINED_ZHIKR_SPOKEN =
   'سُبْحَانَ اللَّهِ ، وَالْحَمْدُ لِلَّهِ ، وَلَا إِلَهَ إِلَّا اللَّهُ ، وَاللَّهُ أَكْبَرُ ، وَصَلَّى اللَّهُ عَلَى مُحَمَّدٍ';
 
-const STORAGE_KEY = 'noor_wa_dhikr_azkar_reminder_v4';
+const STORAGE_KEY = 'noor_wa_dhikr_azkar_reminder_v5';
 
 const DEFAULT_CONFIG: AzkarReminderConfig = {
   enabled: true,
-  intervalMinutes: 5,
+  intervalMinutes: 3, // Default 3 minutes as explicitly requested by user
+  reminderContent: 'salawat_only', // Default «صلِّ على النبي صلى الله عليه وسلم»
   volume: 0.95,
   playChime: true,
-  voiceStyle: 'abdulbasit',
+  voiceStyle: 'egyptian_male', // Default Egyptian male voice as requested
   allowSystemNotification: true,
+  lockScreenKeepAlive: true,
   quietHoursEnabled: true,
   quietStart: '23:00',
   quietEnd: '05:00',
@@ -53,11 +63,12 @@ export interface ReminderState {
   isInQuietHours: boolean;
   permissionStatus: NotificationPermission | 'unsupported';
   lastRecitedAt: string | null;
+  currentHadithIndex: number;
 }
 
 class SalawatAudioReminderService {
   private config: AzkarReminderConfig = DEFAULT_CONFIG;
-  private secondsRemaining: number = 300; // 5 min = 300s
+  private secondsRemaining: number = 180; // 3 min = 180s
   private timerId: number | null = null;
   private isPlayingAudio: boolean = false;
   private isPausedForAdhan: boolean = false;
@@ -65,12 +76,15 @@ class SalawatAudioReminderService {
   private listeners: Set<Listener> = new Set();
   private audioCtx: AudioContext | null = null;
   private localAudioEl: HTMLAudioElement | null = null;
+  private keepAliveAudioEl: HTMLAudioElement | null = null;
   private lastRecitedAt: string | null = null;
+  private currentHadithIndex: number = 0;
 
   constructor() {
     this.loadConfig();
     this.secondsRemaining = this.config.intervalMinutes * 60;
     this.startTimer();
+    this.setupKeepAlive();
 
     // Coordinate with Adhan: Pause Azkar when Adhan starts, resume when done
     adhanService.onAdhanStart(() => {
@@ -101,16 +115,12 @@ class SalawatAudioReminderService {
     try {
       const saved =
         localStorage.getItem(STORAGE_KEY) ||
-        localStorage.getItem('noor_wa_dhikr_azkar_reminder_v3');
+        localStorage.getItem('noor_wa_dhikr_azkar_reminder_v4');
       if (saved) {
         const parsed = JSON.parse(saved);
         this.config = { ...DEFAULT_CONFIG, ...parsed };
-        // If not explicitly set or upgraded, default to Sheikh Abdul Basit as requested
-        if (!parsed.voiceStyle || parsed.voiceStyle === 'mishary') {
-          this.config.voiceStyle = 'abdulbasit';
-        }
       } else {
-        this.config = { ...DEFAULT_CONFIG, voiceStyle: 'abdulbasit' };
+        this.config = DEFAULT_CONFIG;
       }
     } catch {
       this.config = DEFAULT_CONFIG;
@@ -143,13 +153,14 @@ class SalawatAudioReminderService {
     if (!this.config.enabled) {
       this.stopTimer();
       this.stopCurrentVoice();
+      this.tearDownKeepAlive();
     } else {
       if (this.timerId === null) {
         this.startTimer();
       }
-      // When newly enabled, play the combined remembrance immediately!
+      this.setupKeepAlive();
       if (!wasEnabled && this.config.enabled) {
-        this.playCombinedZhikrNow();
+        this.playReminderNow();
       }
     }
 
@@ -202,22 +213,63 @@ class SalawatAudioReminderService {
         ? Notification.permission
         : 'unsupported';
 
+    let currentText = SALAWAT_TEXT;
+    if (this.config.reminderContent === 'combined') {
+      currentText = COMBINED_ZHIKR_TEXT;
+    } else if (this.config.reminderContent === 'hadith_periodic') {
+      const h = HADITHS_DATA[this.currentHadithIndex % HADITHS_DATA.length];
+      currentText = h ? `حديث نبوي: «${h.matn}»` : SALAWAT_TEXT;
+    }
+
     return {
       config: { ...this.config },
       secondsRemaining: this.secondsRemaining,
-      currentZhikrText: COMBINED_ZHIKR_TEXT,
+      currentZhikrText: currentText,
       isPlayingAudio: this.isPlayingAudio,
       isPausedForAdhan: this.isPausedForAdhan,
       isPausedForIqama: this.isPausedForIqama,
       isInQuietHours: this.isInsideQuietHours(),
       permissionStatus,
       lastRecitedAt: this.lastRecitedAt,
+      currentHadithIndex: this.currentHadithIndex,
     };
   }
 
   private notifyListeners() {
     const state = this.getState();
     this.listeners.forEach(fn => fn(state));
+  }
+
+  // Setup background audio keep-alive to keep lock screen timers running
+  private setupKeepAlive() {
+    if (typeof window === 'undefined' || !this.config.lockScreenKeepAlive || !this.config.enabled) return;
+
+    try {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'نور وذكر — التذكير مستمر',
+          artist: 'صلِّ على النبي صلى الله عليه وسلم',
+          album: 'نور وذكر',
+          artwork: [
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+          ],
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private tearDownKeepAlive() {
+    if (this.keepAliveAudioEl) {
+      try {
+        this.keepAliveAudioEl.pause();
+        this.keepAliveAudioEl = null;
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private startTimer() {
@@ -231,9 +283,9 @@ class SalawatAudioReminderService {
         this.secondsRemaining -= 1;
         this.notifyListeners();
       } else {
-        // Reset 5-minute timer and trigger remembrance
+        // Reset timer and trigger reminder
         this.secondsRemaining = this.config.intervalMinutes * 60;
-        this.triggerPeriodicZhikr();
+        this.triggerPeriodicReminder();
       }
     }, 1000);
   }
@@ -319,64 +371,68 @@ class SalawatAudioReminderService {
     this.isPlayingAudio = false;
   }
 
-  // Speak Arabic phrase with soothing, reverent Sheikh cadence
-  private async speakPhraseFallback(textToSpeak: string): Promise<void> {
-    try {
-      this.isPlayingAudio = true;
-      this.notifyListeners();
-      await sheikhVoiceService.speakPhrase(textToSpeak);
-    } catch (e) {
-      console.warn('Sheikh voice fallback failed:', e);
-    } finally {
-      this.isPlayingAudio = false;
-      this.notifyListeners();
-    }
-  }
-
   private vibrate() {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
-        navigator.vibrate([100, 60, 120]);
+        navigator.vibrate([200, 100, 200]);
       } catch {
         // ignore
       }
     }
   }
 
-  private showNotification() {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
+  // Show Lock-Screen compatible local notification (using ServiceWorker if available)
+  private showNotification(title: string, bodyText: string) {
+    if (typeof window === 'undefined') return;
 
-    try {
-      new Notification('تطبيق نور وذكر - ذكر الله تعالى والصلاة على النبي ﷺ', {
-        body: 'سُبْحَانَ اللَّهِ ، وَالْحَمْدُ لِلَّهِ ، وَلَا إِلَهَ إِلَّا اللَّهُ ، وَاللَّهُ أَكْبَرُ ، وَصَلَّى اللَّهُ عَلَى مُحَمَّدٍ',
-        icon: '/icon-192.png',
-        badge: '/icon.svg',
-        tag: 'noor-wa-dhikr-reminder',
-      });
-    } catch {
-      // ignore
+    const options: NotificationOptions & { renotify?: boolean } = {
+      body: bodyText,
+      icon: '/icon-192.png',
+      badge: '/icon.svg',
+      tag: 'noor-salawat-reminder',
+      renotify: true,
+      requireInteraction: false,
+      silent: false,
+    };
+
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready
+        .then(reg => {
+          reg.showNotification(title, options as NotificationOptions);
+        })
+        .catch(() => {
+          this.fallbackShowNotification(title, options as NotificationOptions);
+        });
+    } else {
+      this.fallbackShowNotification(title, options as NotificationOptions);
     }
   }
 
-  public triggerPeriodicZhikr() {
-    // If quiet hours are active, do not disturb sleep!
+  private fallbackShowNotification(title: string, options: NotificationOptions) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, options);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  public triggerPeriodicReminder() {
     if (this.isInsideQuietHours()) {
       this.notifyListeners();
       return;
     }
 
-    // If device is in call or busy, skip this tick
     if (this.isDeviceBusy()) {
       return;
     }
 
-    this.playCombinedZhikrNow();
+    this.playReminderNow();
   }
 
-  // Play the combined Azkar requested by the user:
-  // "سبحان الله والحمد لله والله اكبر ولا إله إلا الله وصلي علي محمد يقولهم كلهم مع بعض بصوت الشيخ المشاري"
-  public async playCombinedZhikrNow() {
+  // Play the chosen reminder (Salawat, Combined, or Hadith)
+  public async playReminderNow() {
     if (this.isPausedForAdhan || this.isPausedForIqama) return;
 
     this.isPlayingAudio = true;
@@ -385,27 +441,94 @@ class SalawatAudioReminderService {
 
     this.vibrate();
 
-    if (this.config.allowSystemNotification) {
-      this.showNotification();
+    // Determine content to play
+    if (this.config.reminderContent === 'hadith_periodic') {
+      await this.playPeriodicHadith();
+    } else if (this.config.reminderContent === 'combined') {
+      await this.playCombinedZhikr();
+    } else {
+      // Default: Salawat «صلِّ على النبي صلى الله عليه وسلم»
+      await this.playSalawatOnly();
     }
 
-    // If user chose Sheikh Reader synthesis directly
-    if (this.config.voiceStyle === 'sheikh_reader') {
+    this.isPlayingAudio = false;
+    this.notifyListeners();
+  }
+
+  // 1. «صلِّ على النبي صلى الله عليه وسلم»
+  private async playSalawatOnly() {
+    const title = 'صلِّ على النبي ﷺ — نور وذكر';
+    const body = '«اللهم صلِّ وسلِّم وبارِك على نبينا ورسولنا محمد وعلى آله وصحبه أجمعين»';
+
+    if (this.config.allowSystemNotification) {
+      this.showNotification(title, body);
+    }
+
+    if (this.config.playChime) {
+      await this.playChimeSound();
+    }
+
+    const isEgyptian = this.config.voiceStyle === 'egyptian_male';
+
+    if (this.config.voiceStyle === 'mishary') {
+      // Try Mishary style audio or Egyptian/Arabic voice
+      await this.playLocalAudioOrVoice('/audio/azkar_combined_mishary_style.mp3', SALAWAT_SPOKEN, false);
+    } else if (this.config.voiceStyle === 'abdulbasit') {
+      await this.playLocalAudioOrVoice('/audio/azkar_combined_abdulbasit.mp3', SALAWAT_SPOKEN, false);
+    } else {
+      // Egyptian male voice or Sheikh reader voice via synthesis
+      await sheikhVoiceService.speakPhrase(SALAWAT_SPOKEN, isEgyptian);
+    }
+  }
+
+  // 2. Combined Azkar («سبحان الله والحمد لله ولا إله إلا الله والله أكبر وصلى الله على محمد»)
+  private async playCombinedZhikr() {
+    const title = 'ذكر الله تعالى والصلاة على النبي ﷺ';
+    const body = COMBINED_ZHIKR_TEXT;
+
+    if (this.config.allowSystemNotification) {
+      this.showNotification(title, body);
+    }
+
+    const isEgyptian = this.config.voiceStyle === 'egyptian_male';
+
+    if (isEgyptian || this.config.voiceStyle === 'sheikh_reader') {
       if (this.config.playChime) {
         await this.playChimeSound();
       }
-      await this.speakPhraseFallback(COMBINED_ZHIKR_SPOKEN);
-      this.isPlayingAudio = false;
-      this.notifyListeners();
-      return;
+      await sheikhVoiceService.speakPhrase(COMBINED_ZHIKR_SPOKEN, isEgyptian);
+    } else {
+      const audioPath =
+        this.config.voiceStyle === 'mishary'
+          ? '/audio/azkar_combined_mishary_style.mp3'
+          : '/audio/azkar_combined_abdulbasit.mp3';
+
+      await this.playLocalAudioOrVoice(audioPath, COMBINED_ZHIKR_SPOKEN, false);
+    }
+  }
+
+  // 3. Periodic Prophetic Hadith with Egyptian Voice
+  private async playPeriodicHadith() {
+    const hadith = HADITHS_DATA[this.currentHadithIndex % HADITHS_DATA.length];
+    this.currentHadithIndex = (this.currentHadithIndex + 1) % HADITHS_DATA.length;
+
+    const title = `حديث نبوي شريف — ${hadith.title}`;
+    const body = `«${hadith.matn}» — ${hadith.source}`;
+
+    if (this.config.allowSystemNotification) {
+      this.showNotification(title, body);
     }
 
-    // Audio file based on chosen Sheikh (Abdul Basit or Mishary)
-    const audioPath =
-      this.config.voiceStyle === 'mishary'
-        ? '/audio/azkar_combined_mishary_style.mp3'
-        : '/audio/azkar_combined_abdulbasit.mp3';
+    if (this.config.playChime) {
+      await this.playChimeSound();
+    }
 
+    const textToSpeak = `قال رسول الله ﷺ: ${hadith.matn}`;
+    const isEgyptian = this.config.voiceStyle === 'egyptian_male';
+    await sheikhVoiceService.speakPhrase(textToSpeak, isEgyptian);
+  }
+
+  private async playLocalAudioOrVoice(audioPath: string, fallbackText: string, preferEgyptian: boolean) {
     let audioPlayed = false;
     try {
       if (!this.localAudioEl) {
@@ -417,32 +540,28 @@ class SalawatAudioReminderService {
 
       await new Promise<void>((resolve, reject) => {
         if (!this.localAudioEl) return reject();
-
         this.localAudioEl.onended = () => {
           audioPlayed = true;
           resolve();
         };
-
-        this.localAudioEl.onerror = () => {
-          reject(new Error('Audio load error'));
-        };
-
+        this.localAudioEl.onerror = () => reject(new Error('Audio load failed'));
         this.localAudioEl.play().catch(reject);
       });
     } catch {
       audioPlayed = false;
     }
 
-    // If audio element was blocked by browser or failed, fallback to Sheikh voice + chime
     if (!audioPlayed) {
       if (this.config.playChime) {
         await this.playChimeSound();
       }
-      await this.speakPhraseFallback(COMBINED_ZHIKR_SPOKEN);
+      await sheikhVoiceService.speakPhrase(fallbackText, preferEgyptian);
     }
+  }
 
-    this.isPlayingAudio = false;
-    this.notifyListeners();
+  // Legacy helper for compatibility
+  public async playCombinedZhikrNow() {
+    await this.playReminderNow();
   }
 }
 

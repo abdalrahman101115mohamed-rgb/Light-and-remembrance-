@@ -5,7 +5,6 @@ import {
   Pause,
   Clock,
   Sparkles,
-  RotateCcw,
   Settings,
   Moon,
   ShieldCheck,
@@ -13,19 +12,26 @@ import {
   Headphones,
   Sliders,
   Flame,
-  BellRing
+  BellRing,
+  HelpCircle,
+  Smartphone
 } from 'lucide-react';
 import {
   salawatAudioService,
   ReminderState,
-  COMBINED_ZHIKR_TEXT
+  SALAWAT_TEXT,
+  COMBINED_ZHIKR_TEXT,
+  ReminderContentType,
+  VoiceStyleType
 } from '../utils/salawatAudioReminder';
 import { adhanService, AdhanState } from '../utils/adhanService';
+import { LockScreenGuideModal } from './LockScreenGuideModal';
 
 export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const [state, setState] = useState<ReminderState>(salawatAudioService.getState());
   const [adhanState, setAdhanState] = useState<AdhanState>(adhanService.getState());
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [showLockScreenGuide, setShowLockScreenGuide] = useState<boolean>(false);
 
   useEffect(() => {
     const unsubReminder = salawatAudioService.subscribe(newState => {
@@ -48,7 +54,8 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
     isPausedForIqama,
     isInQuietHours,
     permissionStatus,
-    lastRecitedAt
+    lastRecitedAt,
+    currentZhikrText
   } = state;
 
   const minutes = Math.floor(secondsRemaining / 60);
@@ -60,7 +67,7 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
   };
 
   const handleTestVoice = async () => {
-    await salawatAudioService.playCombinedZhikrNow();
+    await salawatAudioService.playReminderNow();
   };
 
   const handleIntervalChange = (val: number) => {
@@ -75,6 +82,20 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
     await salawatAudioService.requestNotificationPermission();
   };
 
+  // Label for current voice style
+  const getVoiceLabel = (v: VoiceStyleType) => {
+    switch (v) {
+      case 'egyptian_male':
+        return 'صوت راجل مصري وقور 🇪🇬';
+      case 'abdulbasit':
+        return 'الشيخ عبد الباسط عبد الصمد ⭐️';
+      case 'mishary':
+        return 'الشيخ مشاري راشد العفاسي 🔊';
+      case 'sheikh_reader':
+        return 'صوت شيخ خاشع 🎙️';
+    }
+  };
+
   if (compact) {
     return (
       <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-900/50 border border-amber-500/30 shadow-md">
@@ -84,20 +105,21 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-amber-200">الأذكار مجتمعة كل {config.intervalMinutes} دقائق</span>
+              <span className="text-xs font-bold text-amber-200">
+                {config.reminderContent === 'salawat_only'
+                  ? `الصلاة على النبي ﷺ كل ${config.intervalMinutes} دقائق`
+                  : config.reminderContent === 'hadith_periodic'
+                  ? `أحاديث دورية كل ${config.intervalMinutes} دقائق`
+                  : `الأذكار كل ${config.intervalMinutes} دقائق`}
+              </span>
               {isPlayingAudio && (
                 <span className="text-[10px] bg-amber-500 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold animate-pulse">
-                  جاري النطق بصوت {config.voiceStyle === 'abdulbasit' ? 'الشيخ عبد الباسط ⭐️' : config.voiceStyle === 'mishary' ? 'الشيخ مشاري 🔊' : 'الشيخ القارئ 🎙️'}
-                </span>
-              )}
-              {isInQuietHours && (
-                <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-1.5 py-0.2 rounded-full font-bold">
-                  وضع السكون 🌙
+                  جاري النطق ({getVoiceLabel(config.voiceStyle)})
                 </span>
               )}
             </div>
             <p className="text-[11px] text-emerald-300/80 font-mono">
-              {config.enabled ? (isInQuietHours ? 'هادئ أثناء النوم' : `الذكر القادم بعد: ${timeFormatted}`) : 'الأذكار متوقفة مؤقتاً'}
+              {config.enabled ? (isInQuietHours ? 'هادئ أثناء النوم' : `التذكير القادم بعد: ${timeFormatted}`) : 'الأذكار متوقفة مؤقتاً'}
             </p>
           </div>
         </div>
@@ -107,7 +129,6 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
             onClick={handleTestVoice}
             disabled={isPlayingAudio}
             className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs transition"
-            title="تجربة صوت الشيخ مشاري الآن"
           >
             استمع الآن
           </button>
@@ -118,7 +139,6 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
                 ? 'bg-emerald-800 text-amber-300 border-emerald-700'
                 : 'bg-emerald-950 text-slate-400 border-emerald-900'
             }`}
-            title={config.enabled ? 'إيقاف الأذكار' : 'تشغيل الأذكار'}
           >
             {config.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
@@ -133,6 +153,12 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
 
   return (
     <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-teal-950 to-emerald-900 border-2 border-amber-500/40 p-5 sm:p-6 shadow-2xl backdrop-blur-md">
+      {/* Lock Screen Guide Modal */}
+      <LockScreenGuideModal
+        isOpen={showLockScreenGuide}
+        onClose={() => setShowLockScreenGuide(false)}
+      />
+
       {/* Decorative background glow */}
       <div className="absolute -top-12 -left-12 w-40 h-40 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -148,25 +174,34 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-sm sm:text-base text-amber-300 font-quran">
-                الأذكار الصوتية المجمعة (بصوت الشيخ مشاري)
+                تذكير «صلِّ على النبي ﷺ» والأذكار الصوتية
               </h3>
               <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold">
-                كل {config.intervalMinutes} دقائق
+                كل {config.intervalMinutes} دقائق ⭐️
               </span>
             </div>
             <p className="text-[11px] text-emerald-300/80">
-              يقول كل 5 دقائق: «سبحان الله والحمد لله ولا إله إلا الله والله أكبر وصلى الله على محمد» مجتمعة
+              تذكير صوتي آلي بدون إنترنت حتى مع قفل الشاشة بصوت واضح
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
           <button
+            onClick={() => setShowLockScreenGuide(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-semibold transition"
+            title="دليل ضبط الإشعارات لشاشة القفل والبطارية"
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">شاشة القفل</span>
+          </button>
+
+          <button
             onClick={() => setShowSettings(!showSettings)}
             className={`p-2 rounded-xl border transition ${
               showSettings ? 'bg-amber-500 text-emerald-950 border-amber-400' : 'bg-emerald-900/60 text-amber-300 border-amber-500/30 hover:bg-emerald-800'
             }`}
-            title="إعدادات الصوت وأوقات السكون"
+            title="إعدادات الصوت والفترة الزمنية"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -182,12 +217,12 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
             {config.enabled ? (
               <>
                 <Pause className="w-3.5 h-3.5 fill-current" />
-                <span>إيقاف مؤقت</span>
+                <span>إيقاف</span>
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>تشغيل الأذكار</span>
+                <span>تشغيل</span>
               </>
             )}
           </button>
@@ -198,14 +233,14 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
       {isPausedForAdhan && (
         <div className="relative z-10 mt-3 p-3 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center gap-2 text-amber-200 text-xs animate-pulse">
           <BellRing className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>الأذان يرفع الآن — تم إيقاف الذكر الصوتي مؤقتاً لتعظيم نداء الصلاة وسيعود تلقائياً بعد الأذان.</span>
+          <span>الأذان يرفع الآن — تم إيقاف التذكير الصوتي مؤقتاً لتعظيم نداء الصلاة وسيعود تلقائياً.</span>
         </div>
       )}
 
       {isPausedForIqama && (
         <div className="relative z-10 mt-3 p-3 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 flex items-center gap-2 text-emerald-200 text-xs animate-pulse">
           <Flame className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>إقامة الصلاة جارية الآن — تم إيقاف الذكر مؤقتاً لسماع الإقامة.</span>
+          <span>إقامة الصلاة جارية الآن — تم إيقاف التذكير مؤقتاً لسماع الإقامة.</span>
         </div>
       )}
 
@@ -214,21 +249,27 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
         <div className="relative z-10 mt-3 p-2.5 rounded-2xl bg-indigo-950/60 border border-indigo-700/50 flex items-center justify-between text-indigo-200 text-xs">
           <div className="flex items-center gap-2">
             <Moon className="w-4 h-4 text-indigo-400" />
-            <span>وضع السكون الليلي مفعّل ({config.quietStart} إلى {config.quietEnd}) حتى لا يزعج نومك.</span>
+            <span>وضع السكون الليلي مفعّل ({config.quietStart} إلى {config.quietEnd}) للحفاظ على نوم هادئ.</span>
           </div>
           <span className="text-[10px] bg-indigo-500/20 px-2 py-0.5 rounded-full font-bold">هادئ</span>
         </div>
       )}
 
-      {/* Main Combined Remembrance Card */}
+      {/* Main Remembrance Card */}
       <div className="relative z-10 my-4 p-4 rounded-2xl bg-emerald-950/80 border border-amber-500/30 text-center space-y-3 shadow-inner">
         <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-amber-400">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>الباقيات الصالحات والصلاة على النبي ﷺ (تُنطق كلها مجتمعة)</span>
+          <span>
+            {config.reminderContent === 'salawat_only'
+              ? 'تذكير الصلاة والسلام على رسول الله ﷺ (كل 3 دقائق)'
+              : config.reminderContent === 'hadith_periodic'
+              ? 'أحاديث نبوية شريفة دورية'
+              : 'الباقيات الصالحات والأذكار الجامعة'}
+          </span>
         </div>
 
-        <p className="text-base sm:text-lg font-bold font-quran text-amber-100 leading-loose tracking-wide py-1 px-2 bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 rounded-xl border border-amber-500/20">
-          « سُبْحَانَ اللَّهِ ، وَالْحَمْدُ لِلَّهِ ، وَلَا إِلَهَ إِلَّا اللَّهُ ، وَاللَّهُ أَكْبَرُ ، وَصَلَّى اللَّهُ عَلَى نَبِيِّنَا مُحَمَّدٍ ﷺ »
+        <p className="text-base sm:text-lg font-bold font-quran text-amber-100 leading-loose tracking-wide py-2 px-3 bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 rounded-xl border border-amber-500/20">
+          « {currentZhikrText} »
         </p>
 
         {/* Live Audio & Recitation Status */}
@@ -236,19 +277,15 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
           <div className="flex items-center gap-1.5">
             <Headphones className="w-3.5 h-3.5 text-amber-400" />
             <span>
-              نبرة الصوت:{' '}
+              الصوت المختار:{' '}
               <strong className="text-amber-300">
-                {config.voiceStyle === 'abdulbasit'
-                  ? 'الشيخ عبد الباسط عبد الصمد (أوفلاين) ⭐️'
-                  : config.voiceStyle === 'mishary'
-                  ? 'الشيخ مشاري العفاسي (تسجيل أوفلاين)'
-                  : 'صوت الشيخ القارئ الخاشع (أوفلاين)'}
+                {getVoiceLabel(config.voiceStyle)}
               </strong>
             </span>
           </div>
           {lastRecitedAt && (
             <span className="font-mono text-[11px] text-amber-300/70">
-              آخر نطق: {lastRecitedAt}
+              آخر تذكير: {lastRecitedAt}
             </span>
           )}
         </div>
@@ -288,7 +325,13 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
             }`}
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>{isPlayingAudio ? 'جاري نطق الذكر الشامل الآن...' : 'استمع للذكر الشامل الآن بصوت الشيخ مشاري'}</span>
+            <span>
+              {isPlayingAudio
+                ? 'جاري التذكير الصوتي الآن...'
+                : config.reminderContent === 'salawat_only'
+                ? 'استمع لتذكير «صلِّ على النبي ﷺ» بصوت راجل مصري 🇪🇬'
+                : 'استمع للتذكير الآن'}
+            </span>
           </button>
         </div>
       </div>
@@ -299,7 +342,7 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
           <div className="flex items-center justify-between pb-2 border-b border-emerald-800">
             <span className="font-bold text-amber-300 flex items-center gap-1.5 text-sm">
               <Sliders className="w-4 h-4" />
-              <span>إعدادات الأذكار الصوتية التلقائية:</span>
+              <span>إعدادات التذكير الصوتي وشاشة القفل:</span>
             </span>
             <button
               onClick={() => setShowSettings(false)}
@@ -309,21 +352,78 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
             </button>
           </div>
 
+          {/* Reminder Content Type */}
+          <div className="space-y-1.5">
+            <span className="text-amber-200 font-bold block">محتوى التذكير الصوتي الدوري:</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                onClick={() => salawatAudioService.updateConfig({ reminderContent: 'salawat_only' })}
+                className={`p-2.5 rounded-xl border text-right font-bold transition flex flex-col gap-0.5 ${
+                  config.reminderContent === 'salawat_only'
+                    ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md ring-2 ring-amber-300'
+                    : 'bg-emerald-900/60 text-slate-300 border-emerald-800 hover:bg-emerald-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span>صلِّ على النبي ﷺ ⭐️</span>
+                  {config.reminderContent === 'salawat_only' && (
+                    <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
+                  )}
+                </div>
+                <span className="text-[10px] opacity-80 font-normal">«صلِّ على النبي صلى الله عليه وسلم»</span>
+              </button>
+
+              <button
+                onClick={() => salawatAudioService.updateConfig({ reminderContent: 'combined' })}
+                className={`p-2.5 rounded-xl border text-right font-bold transition flex flex-col gap-0.5 ${
+                  config.reminderContent === 'combined'
+                    ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md ring-2 ring-amber-300'
+                    : 'bg-emerald-900/60 text-slate-300 border-emerald-800 hover:bg-emerald-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span>الأذكار الجامعة</span>
+                  {config.reminderContent === 'combined' && (
+                    <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
+                  )}
+                </div>
+                <span className="text-[10px] opacity-80 font-normal">الباقيات الصالحات + الصلاة على النبي</span>
+              </button>
+
+              <button
+                onClick={() => salawatAudioService.updateConfig({ reminderContent: 'hadith_periodic' })}
+                className={`p-2.5 rounded-xl border text-right font-bold transition flex flex-col gap-0.5 ${
+                  config.reminderContent === 'hadith_periodic'
+                    ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md ring-2 ring-amber-300'
+                    : 'bg-emerald-900/60 text-slate-300 border-emerald-800 hover:bg-emerald-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span>أحاديث نبوية</span>
+                  {config.reminderContent === 'hadith_periodic' && (
+                    <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
+                  )}
+                </div>
+                <span className="text-[10px] opacity-80 font-normal">حديث شريف دوري بصوت راجل مصري</span>
+              </button>
+            </div>
+          </div>
+
           {/* Time Interval Selector */}
           <div className="space-y-1.5">
-            <span className="text-amber-200 font-bold block">الفترة الزمنية بين كل نطق:</span>
-            <div className="grid grid-cols-4 gap-2">
-              {[3, 5, 10, 15].map(mins => (
+            <span className="text-amber-200 font-bold block">الفترة الزمنية بين كل تذكير:</span>
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              {[1, 2, 3, 5, 10, 15].map(mins => (
                 <button
                   key={mins}
                   onClick={() => handleIntervalChange(mins)}
                   className={`py-2 rounded-xl text-center font-bold border transition ${
                     config.intervalMinutes === mins
-                      ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md'
+                      ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md ring-2 ring-amber-300'
                       : 'bg-emerald-900/60 text-slate-300 border-emerald-800 hover:bg-emerald-800'
                   }`}
                 >
-                  {mins} دقائق {mins === 5 && '⭐️'}
+                  {mins} {mins === 1 ? 'دقيقة' : mins === 2 ? 'دقيقتان' : 'دقائق'} {mins === 3 && '⭐️'}
                 </button>
               ))}
             </div>
@@ -331,23 +431,23 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
 
           {/* Voice Style Selector */}
           <div className="space-y-1.5">
-            <label className="text-amber-200 font-bold block">اختيار صوت الشيخ للتذكير بالأذكار:</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            <label className="text-amber-200 font-bold block">اختيار صوت التذكير والأذكار:</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               <button
-                onClick={() => salawatAudioService.updateConfig({ voiceStyle: 'abdulbasit' })}
+                onClick={() => salawatAudioService.updateConfig({ voiceStyle: 'egyptian_male' })}
                 className={`p-2.5 rounded-xl border text-right font-bold transition flex flex-col gap-0.5 ${
-                  config.voiceStyle === 'abdulbasit'
+                  config.voiceStyle === 'egyptian_male'
                     ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md ring-2 ring-amber-300'
                     : 'bg-emerald-900/60 text-slate-300 border-emerald-800 hover:bg-emerald-800'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span>الشيخ عبد الباسط ⭐️</span>
-                  {config.voiceStyle === 'abdulbasit' && (
+                  <span>صوت راجل مصري وقور وواضح 🇪🇬 ⭐️</span>
+                  {config.voiceStyle === 'egyptian_male' && (
                     <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
                   )}
                 </div>
-                <span className="text-[10px] opacity-80 font-normal">صوت خاشع بمقام الرست وصدى المساجد</span>
+                <span className="text-[10px] opacity-80 font-normal">صوت رجالي مصري نقي ووقور للأذكار والأحاديث</span>
               </button>
 
               <button
@@ -359,12 +459,29 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span>الشيخ مشاري العفاسي</span>
+                  <span>الشيخ مشاري راشد العفاسي 🔊</span>
                   {config.voiceStyle === 'mishary' && (
                     <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
                   )}
                 </div>
-                <span className="text-[10px] opacity-80 font-normal">تسجيل صوتي مع صدى روحاني</span>
+                <span className="text-[10px] opacity-80 font-normal">نبرة عذبة شجية مؤثرة</span>
+              </button>
+
+              <button
+                onClick={() => salawatAudioService.updateConfig({ voiceStyle: 'abdulbasit' })}
+                className={`p-2.5 rounded-xl border text-right font-bold transition flex flex-col gap-0.5 ${
+                  config.voiceStyle === 'abdulbasit'
+                    ? 'bg-amber-500 text-emerald-950 border-amber-400 shadow-md ring-2 ring-amber-300'
+                    : 'bg-emerald-900/60 text-slate-300 border-emerald-800 hover:bg-emerald-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span>الشيخ عبد الباسط عبد الصمد</span>
+                  {config.voiceStyle === 'abdulbasit' && (
+                    <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
+                  )}
+                </div>
+                <span className="text-[10px] opacity-80 font-normal">صوت خاشع بمقام الرست وصدى المساجد</span>
               </button>
 
               <button
@@ -376,14 +493,47 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span>صوت الشيخ القارئ 🎙️</span>
+                  <span>صوت شيخ خاشع 🎙️</span>
                   {config.voiceStyle === 'sheikh_reader' && (
                     <span className="text-[9px] bg-emerald-950 text-amber-300 px-1.5 py-0.2 rounded font-bold">مُفعّل</span>
                   )}
                 </div>
-                <span className="text-[10px] opacity-80 font-normal">تلاوة خاشعة هادئة</span>
+                <span className="text-[10px] opacity-80 font-normal">قراءة ترتيل هادئة وموزونة</span>
               </button>
             </div>
+          </div>
+
+          {/* Lock Screen & Keep-Alive Settings */}
+          <div className="p-3 rounded-xl bg-emerald-900/40 border border-emerald-800/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-bold text-amber-200 flex items-center gap-1.5">
+                  <Smartphone className="w-4 h-4 text-amber-400" />
+                  <span>استمرار التذكير عند قفل الشاشة (الخلفية):</span>
+                </span>
+                <p className="text-[10px] text-emerald-300/80 mt-0.5">
+                  يُبقي محرك الصوت نشطاً لإرسال التذكيرات والنطق الصوتي حتى لو الشاشة مقفولة
+                </p>
+              </div>
+              <button
+                onClick={() => salawatAudioService.updateConfig({ lockScreenKeepAlive: !config.lockScreenKeepAlive })}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition border ${
+                  config.lockScreenKeepAlive
+                    ? 'bg-amber-500 text-emerald-950 border-amber-400'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}
+              >
+                {config.lockScreenKeepAlive ? 'مفعّل' : 'معطل'}
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowLockScreenGuide(true)}
+              className="text-xs text-amber-300 hover:underline flex items-center gap-1 pt-1 font-semibold"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>عرض خطوات تفعيل الإشعارات لشاشة القفل وحماية البطارية ➔</span>
+            </button>
           </div>
 
           {/* Volume Slider */}
@@ -455,7 +605,7 @@ export const SalawatReminderWidget: React.FC<{ compact?: boolean }> = ({ compact
             {permissionStatus === 'granted' ? (
               <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>مفعلة</span>
+                <span>مفعلة بنجاح</span>
               </span>
             ) : (
               <button

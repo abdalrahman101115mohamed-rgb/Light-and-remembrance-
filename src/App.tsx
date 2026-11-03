@@ -430,7 +430,7 @@ export default function App() {
                 </div>
                 <div>
                   <h4 className="font-bold text-xs sm:text-sm text-white">الإعدادات والتذكير الصوتي</h4>
-                  <p className="text-[10px] text-emerald-300/70">ضبط نطق الأذكار كل 5 دقائق والمواقيت</p>
+                  <p className="text-[10px] text-emerald-300/70">ضبط نداء الأذان والإقامة، وتذكير «صلِّ على النبي ﷺ» كل 3 دقائق، والصوت المصري</p>
                 </div>
               </button>
             </div>

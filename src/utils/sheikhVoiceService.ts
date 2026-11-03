@@ -5,10 +5,11 @@
 import { adhanService } from './adhanService';
 
 export interface SheikhVoiceSettings {
-  pitch: number; // 0.80 - 1.10 (Default: 0.88 for deep, solemn Sheikh timbre)
-  rate: number; // 0.70 - 1.00 (Default: 0.82 for deliberate, tranquil recitation pace)
-  volume: number; // 0.0 - 1.0 (Default: 1.0)
+  pitch: number; // 0.80 - 1.10
+  rate: number; // 0.70 - 1.00
+  volume: number; // 0.0 - 1.0
   playPreludeChime: boolean; // Gentle reverent harmonic bell before starting
+  preferEgyptianVoice: boolean; // Authentic Egyptian male voice for Hadiths & Azkar
 }
 
 export interface NarrationQueueState {
@@ -24,13 +25,14 @@ export interface NarrationQueueState {
 
 type StateListener = (state: NarrationQueueState) => void;
 
-const STORAGE_SETTINGS_KEY = 'noor_wa_dhikr_sheikh_voice_v1';
+const STORAGE_SETTINGS_KEY = 'noor_wa_dhikr_sheikh_voice_v2';
 
 const DEFAULT_SETTINGS: SheikhVoiceSettings = {
-  pitch: 0.88,
-  rate: 0.82,
+  pitch: 0.86,
+  rate: 0.84,
   volume: 1.0,
   playPreludeChime: true,
+  preferEgyptianVoice: true,
 };
 
 class SheikhVoiceService {
@@ -103,8 +105,8 @@ class SheikhVoiceService {
     }
   }
 
-  // Find optimal Arabic voice (preferring male, dignified sounding voices)
-  public getBestArabicVoice(): SpeechSynthesisVoice | null {
+  // Find optimal Arabic voice, specifically prioritizing Egyptian male voices when requested
+  public getBestArabicVoice(preferEgyptian: boolean = false): SpeechSynthesisVoice | null {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
 
     const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
@@ -112,9 +114,25 @@ class SheikhVoiceService {
 
     if (arabicVoices.length === 0) return null;
 
+    if (preferEgyptian) {
+      // Prioritize authentic Egyptian male voices
+      const egyptianVoices = arabicVoices.filter(v =>
+        v.lang.toLowerCase() === 'ar-eg' ||
+        v.lang.toLowerCase().includes('eg') ||
+        v.name.toLowerCase().includes('egypt') ||
+        v.name.toLowerCase().includes('maged') ||
+        v.name.toLowerCase().includes('shakir') ||
+        v.name.toLowerCase().includes('tarik') ||
+        v.name.toLowerCase().includes('tariq')
+      );
+      if (egyptianVoices.length > 0) {
+        return egyptianVoices[0];
+      }
+    }
+
     // Prefer renowned male Arabic voice profiles if available on Android / Chrome / iOS
     const preferredNames = [
-      'tarik', 'maged', 'naayf', 'tariq', 'shakir', 'salim', 'google ar', 'microsoft', 'arabic (saudi'
+      'maged', 'shakir', 'tarik', 'tariq', 'naayf', 'salim', 'google ar', 'microsoft', 'arabic (egypt', 'arabic (saudi'
     ];
 
     for (const pref of preferredNames) {
@@ -122,7 +140,10 @@ class SheikhVoiceService {
       if (match) return match;
     }
 
-    // Default to Saudi / Egyptian Arabic if available
+    // Default to Egyptian or Saudi Arabic if available
+    const egyptVoice = arabicVoices.find(v => v.lang.toLowerCase() === 'ar-eg');
+    if (egyptVoice) return egyptVoice;
+
     const saudiVoice = arabicVoices.find(v => v.lang.toLowerCase() === 'ar-sa');
     if (saudiVoice) return saudiVoice;
 
@@ -356,8 +377,8 @@ class SheikhVoiceService {
     this.speakCurrentChunk();
   }
 
-  // General speech method for Dhikr or single phrase
-  public async speakPhrase(text: string): Promise<void> {
+  // General speech method for Dhikr or single phrase (supporting Egyptian male voice)
+  public async speakPhrase(text: string, preferEgyptian: boolean = false): Promise<void> {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     if (this.settings.playPreludeChime) {
@@ -368,12 +389,12 @@ class SheikhVoiceService {
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ar-SA';
-        utterance.rate = this.settings.rate;
-        utterance.pitch = this.settings.pitch;
+        utterance.lang = preferEgyptian ? 'ar-EG' : 'ar-SA';
+        utterance.rate = preferEgyptian ? 0.85 : this.settings.rate;
+        utterance.pitch = preferEgyptian ? 0.84 : this.settings.pitch;
         utterance.volume = this.settings.volume;
 
-        const voice = this.getBestArabicVoice();
+        const voice = this.getBestArabicVoice(preferEgyptian);
         if (voice) utterance.voice = voice;
 
         utterance.onend = () => resolve();
@@ -396,14 +417,15 @@ class SheikhVoiceService {
 
     window.speechSynthesis.cancel();
 
-    const chunkText = this.queue[this.currentChunkIndex];
+    const chunkText = this.queue[this.currentChunkIndex] || '';
+    const preferEgyptian = this.settings.preferEgyptianVoice;
     const utterance = new SpeechSynthesisUtterance(chunkText);
-    utterance.lang = 'ar-SA';
-    utterance.rate = this.settings.rate;
-    utterance.pitch = this.settings.pitch;
+    utterance.lang = preferEgyptian ? 'ar-EG' : 'ar-SA';
+    utterance.rate = preferEgyptian ? 0.85 : this.settings.rate;
+    utterance.pitch = preferEgyptian ? 0.84 : this.settings.pitch;
     utterance.volume = this.settings.volume;
 
-    const voice = this.getBestArabicVoice();
+    const voice = this.getBestArabicVoice(preferEgyptian);
     if (voice) utterance.voice = voice;
 
     utterance.onend = () => {
